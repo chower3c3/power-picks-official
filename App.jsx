@@ -364,7 +364,9 @@ function PickRow({ pick }) {
       <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", marginBottom:6, gap:8 }}>
         <div style={{ flex:1, minWidth:0 }}>
           <div style={{ fontSize:13, fontWeight:700, color:C.text, lineHeight:1.4, whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis" }}>{pick.bet}</div>
-          <div style={{ fontSize:10, color:C.muted, marginTop:1, whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis" }}>{pick.game}</div>
+          <div style={{ fontSize:10, color:C.muted, marginTop:1, whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis" }}>
+            {pick.game}{pick.date ? <span style={{ marginLeft:6, opacity:.6 }}>· {pick.date}</span> : null}
+          </div>
         </div>
         <span style={{ flexShrink:0, fontSize:10, fontWeight:700, padding:"3px 9px", borderRadius:12,
           background:`${rCol}18`, border:`1px solid ${rCol}55`, color:rCol,
@@ -448,6 +450,7 @@ function AddPickModal({ game, onClose, onSave, existingPick }) {
   const defaultBet = game
     ? game.sport === "PGA" ? `${game.home} Win Outright` : `${game.home.split(" ").slice(-1)[0]} ML`
     : "";
+  const todayStr = new Date().toISOString().split("T")[0];
   const [form, setForm] = useState(isEdit ? { ...existingPick } : {
     game:  game ? (game.sport === "PGA" ? `${game.home} – Tour Event` : `${game.away} @ ${game.home}`) : "",
     sport: game?.sport || "NBA",
@@ -459,6 +462,7 @@ function AddPickModal({ game, onClose, onSave, existingPick }) {
     betTypeOverride: false,
     notes: "",
     result: "pending",
+    date:  todayStr,
   });
   const [customGame, setCustomGame] = useState(isEdit || !game);
   const [customTagInput, setCustomTagInput] = useState("");
@@ -496,7 +500,7 @@ function AddPickModal({ game, onClose, onSave, existingPick }) {
       onSave({ ...form, betType: finalBetType, league: form.sport || form.league });
     } else {
       onSave({ ...form, id: Date.now(), profit: 0,
-        date: new Date().toISOString().split("T")[0],
+        date: form.date || new Date().toISOString().split("T")[0],
         betType: finalBetType, league: form.sport });
     }
     onClose();
@@ -588,10 +592,11 @@ function AddPickModal({ game, onClose, onSave, existingPick }) {
           </div>
         </div>
 
-        {/* Odds + Stake */}
-        <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10, marginBottom:14 }}>
+        {/* Odds + Stake + Date */}
+        <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr 1fr", gap:10, marginBottom:14 }}>
           <div>{lbl("Odds")}<input type="number" style={inputStyle} value={form.odds} onChange={e=>setForm(f=>({...f,odds:Number(e.target.value)}))} /></div>
           <div>{lbl("Stake ($)")}<input type="number" style={inputStyle} value={form.stake} onChange={e=>setForm(f=>({...f,stake:Number(e.target.value)}))} /></div>
+          <div>{lbl("Date")}<input type="date" style={inputStyle} value={form.date || ""} onChange={e=>setForm(f=>({...f,date:e.target.value}))} /></div>
         </div>
 
         {/* Strategy tags — built-in + user-created custom tags */}
@@ -839,11 +844,23 @@ function PicksTab({ picks, setPicks, onAdd }) {
                   </button>
                 )}
                 <button onClick={()=>setEditing(p)} style={{
-                  padding:"7px 16px", borderRadius:6,
+                  padding:"7px 14px", borderRadius:6,
                   border:`1px solid ${C.border}`, background:C.surfaceHi,
                   color:C.muted, cursor:"pointer", fontSize:11, fontWeight:700,
                   fontFamily:"'Montserrat',sans-serif", letterSpacing:".04em" }}>
                   ✎ Edit
+                </button>
+                <button onClick={()=>{
+                  if (window.confirm(`Delete "${p.bet}"? This cannot be undone.`)) {
+                    setPicks(prev => prev.filter(x => x.id !== p.id));
+                  }
+                }} style={{
+                  padding:"7px 12px", borderRadius:6,
+                  border:"1px solid rgba(192,36,62,.3)", background:"rgba(192,36,62,.06)",
+                  color:C.loss, cursor:"pointer", fontSize:11, fontWeight:700,
+                  fontFamily:"'Montserrat',sans-serif" }}
+                  title="Delete this pick">
+                  🗑
                 </button>
               </div>
             </div>
