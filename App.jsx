@@ -23,7 +23,7 @@ const C = {
 };
 
 // ─── CONSTANTS ───────────────────────────────────────────────────────────────
-const SPORTS_FILTER = ["All", "NBA", "MLB", "NCAAB", "PGA"];
+const SPORTS_FILTER = ["All", "NBA", "MLB", "NCAAB", "NCAAB Baseball", "PGA"];
 
 // ── Tier 1: Auto-tagged BET TYPE (always set from bet description) ──
 const BET_TYPES    = ["Moneyline", "Spread", "Total", "Team Total", "Prop", "Futures", "Parlay"];
@@ -34,7 +34,7 @@ const BET_TYPE_COLORS = {
 
 // ── Tier 2: Auto-tagged LEAGUE (always set from sport field) ──
 const LEAGUE_COLORS = {
-  NBA: "#C0243E", MLB: "#0077CC", NCAAB: "#D4500A",
+  NBA: "#C0243E", MLB: "#0077CC", NCAAB: "#D4500A", "NCAAB Baseball": "#2563EB",
   PGA: "#1A7A3F", NFL: "#003594", NHL: "#0E4C96",
   CFB: "#7B3FA0", Other: "#6B7FA3"
 };
@@ -442,24 +442,29 @@ function SharpCard({ d }) {
   );
 }
 
-// ─── ADD PICK MODAL ───────────────────────────────────────────────────────────
-function AddPickModal({ game, onClose, onSave }) {
+// ─── ADD PICK MODAL (also handles editing existing picks) ────────────────────
+function AddPickModal({ game, onClose, onSave, existingPick }) {
+  const isEdit = !!existingPick;
   const defaultBet = game
     ? game.sport === "PGA" ? `${game.home} Win Outright` : `${game.home.split(" ").slice(-1)[0]} ML`
     : "";
-  const [form, setForm] = useState({
+  const [form, setForm] = useState(isEdit ? { ...existingPick } : {
     game:  game ? (game.sport === "PGA" ? `${game.home} – Tour Event` : `${game.away} @ ${game.home}`) : "",
     sport: game?.sport || "NBA",
     bet:   defaultBet,
     odds:  game?.homeOdds || -110,
     stake: 100,
     strategyTags: [],
+    betType: detectBetType(defaultBet),
+    betTypeOverride: false,
     notes: "",
     result: "pending",
   });
-  const [customGame, setCustomGame] = useState(!game);
+  const [customGame, setCustomGame] = useState(isEdit || !game);
   const [customTagInput, setCustomTagInput] = useState("");
-  const autoBetType = detectBetType(form.bet);
+  // Load persisted custom tags from localStorage
+  const [savedCustomTags, setSavedCustomTags] = useState(() => loadCustomTagsSync());
+  const autoBetType = form.betTypeOverride ? form.betType : detectBetType(form.bet);
 
   const inputStyle = {
     width:"100%", padding:"9px 12px", borderRadius:6,
@@ -476,13 +481,24 @@ function AddPickModal({ game, onClose, onSave }) {
     const t = customTagInput.trim();
     if (!t || form.strategyTags.includes(t)) return;
     setForm(f => ({ ...f, strategyTags: [...f.strategyTags, t] }));
+    // Persist new tag globally so it appears in future picks
+    if (!savedCustomTags.includes(t)) {
+      const updated = [...savedCustomTags, t];
+      setSavedCustomTags(updated);
+      saveCustomTagsSync(updated);
+    }
     setCustomTagInput("");
   };
 
   const handleSave = () => {
-    onSave({ ...form, id:Date.now(), profit:0,
-      date: new Date().toISOString().split("T")[0],
-      betType: autoBetType, league: form.sport });
+    const finalBetType = form.betTypeOverride ? form.betType : detectBetType(form.bet);
+    if (isEdit) {
+      onSave({ ...form, betType: finalBetType, league: form.sport || form.league });
+    } else {
+      onSave({ ...form, id: Date.now(), profit: 0,
+        date: new Date().toISOString().split("T")[0],
+        betType: finalBetType, league: form.sport });
+    }
     onClose();
   };
 
@@ -502,7 +518,7 @@ function AddPickModal({ game, onClose, onSave }) {
         {/* Header */}
         <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:18 }}>
           <div>
-            <div style={{ fontSize:16, fontWeight:900, color:C.pitBlue }}>{game ? "ADD PICK" : "CUSTOM BET"}</div>
+            <div style={{ fontSize:16, fontWeight:900, color:C.pitBlue }}>{isEdit ? "EDIT PICK" : game ? "ADD PICK" : "CUSTOM BET"}</div>
             {game && <div style={{ fontSize:11, color:C.muted, marginTop:2 }}>{form.game}</div>}
           </div>
           <button onClick={onClose} style={{ background:"none", border:"none", color:C.muted, fontSize:20, cursor:"pointer", padding:4 }}>✕</button>
@@ -531,7 +547,7 @@ function AddPickModal({ game, onClose, onSave }) {
               <div>
                 {lbl("League")}
                 <select style={inputStyle} value={form.sport} onChange={e=>setForm(f=>({...f,sport:e.target.value,league:e.target.value}))}>
-                  {["NBA","MLB","NCAAB","PGA","NFL","NHL","CFB","Other"].map(s=><option key={s}>{s}</option>)}
+                  {["NBA","MLB","NCAAB","NCAAB Baseball","PGA","NFL","NHL","CFB","Other"].map(s=><option key={s}>{s}</option>)}
                 </select>
               </div>
               <div style={{ display:"flex", flexDirection:"column", justifyContent:"flex-end", paddingBottom:1 }}>
@@ -550,13 +566,26 @@ function AddPickModal({ game, onClose, onSave }) {
           onChange={e=>setForm(f=>({...f,bet:e.target.value}))}
           placeholder="e.g. Celtics -4.5 · Over 228.5 · LeBron O25.5 pts" />
 
-        {/* Auto bet type */}
-        <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:14, padding:"7px 10px",
-          background:`${BET_TYPE_COLORS[autoBetType]||"#6B7FA3"}10`,
-          border:`1px solid ${BET_TYPE_COLORS[autoBetType]||"#6B7FA3"}30`, borderRadius:6 }}>
-          <span style={{ fontSize:9, color:C.muted, fontWeight:700 }}>AUTO BET TYPE →</span>
-          <Tag label={autoBetType} xs />
-          <span style={{ fontSize:9, color:C.muted, marginLeft:"auto", fontStyle:"italic" }}>from description</span>
+        {/* Bet Type — auto-detect with manual override */}
+        <div style={{ marginBottom:14 }}>
+          {lbl("Bet Type")}
+          <div style={{ display:"flex", gap:6, flexWrap:"wrap", marginBottom:6 }}>
+            {["Moneyline","Spread","Total","Team Total","Prop","Parlay","Futures"].map(bt => (
+              <button key={bt} onClick={()=>setForm(f=>({...f, betType:bt, betTypeOverride:true}))}
+                style={{ padding:"5px 11px", borderRadius:16, border:"none", cursor:"pointer",
+                  fontSize:10, fontWeight:700, fontFamily:"'Montserrat',sans-serif", transition:"all .12s",
+                  background: autoBetType===bt ? `${BET_TYPE_COLORS[bt]}22` : C.surfaceHi,
+                  color: autoBetType===bt ? BET_TYPE_COLORS[bt] : C.muted,
+                  outline: autoBetType===bt ? `1.5px solid ${BET_TYPE_COLORS[bt]}66` : `1px solid ${C.border}` }}>
+                {bt}
+              </button>
+            ))}
+          </div>
+          <div style={{ fontSize:9, color:C.muted, fontStyle:"italic" }}>
+            {form.betTypeOverride ? "✎ Manually set" : `Auto-detected from description → ${autoBetType}`}
+            {form.betTypeOverride && <span onClick={()=>setForm(f=>({...f,betTypeOverride:false}))}
+              style={{ marginLeft:8, color:C.pitBlue, cursor:"pointer", fontStyle:"normal", fontWeight:700 }}>Reset auto</span>}
+          </div>
         </div>
 
         {/* Odds + Stake */}
@@ -565,13 +594,13 @@ function AddPickModal({ game, onClose, onSave }) {
           <div>{lbl("Stake ($)")}<input type="number" style={inputStyle} value={form.stake} onChange={e=>setForm(f=>({...f,stake:Number(e.target.value)}))} /></div>
         </div>
 
-        {/* Strategy tags */}
+        {/* Strategy tags — built-in + user-created custom tags */}
         <div style={{ marginBottom:8 }}>
           <div style={{ fontSize:9, fontWeight:700, color:C.muted, letterSpacing:".12em", textTransform:"uppercase", marginBottom:6 }}>
             Strategy Tags <span style={{ textTransform:"none", letterSpacing:0, fontWeight:400 }}>(optional · pick multiple)</span>
           </div>
           <div style={{ display:"flex", flexWrap:"wrap", gap:5 }}>
-            {STRATEGY_TAGS.map(t=>(
+            {[...STRATEGY_TAGS, ...savedCustomTags.filter(t=>!STRATEGY_TAGS.includes(t))].map(t=>(
               <Tag key={t} label={t} xs active={form.strategyTags.includes(t)} onClick={()=>toggleStrategy(t)} />
             ))}
           </div>
@@ -614,7 +643,7 @@ function AddPickModal({ game, onClose, onSave }) {
         <button onClick={handleSave} style={{ width:"100%", padding:"13px 0", borderRadius:8, border:"none",
           background:C.pitBlue, color:"#fff", fontSize:13, fontWeight:900, cursor:"pointer",
           letterSpacing:".08em", fontFamily:"'Montserrat',sans-serif" }}>
-          TRACK THIS BET
+          {isEdit ? "SAVE CHANGES" : "TRACK THIS BET"}
         </button>
       </div>
     </div>
@@ -680,6 +709,7 @@ function PicksTab({ picks, setPicks, onAdd }) {
   const [sportF, setSportF] = useState("All");
   const [labelF, setLabelF] = useState("All");
   const [updating, setUpdating] = useState(null);
+  const [editing, setEditing] = useState(null);
 
   const filtered = picks.filter(p=>
     (sportF==="All"||(p.league||p.sport)===sportF||p.sport===sportF) &&
@@ -763,7 +793,7 @@ function PicksTab({ picks, setPicks, onAdd }) {
       <div style={{ display:"flex", flexDirection:"column", gap:7, marginBottom:14 }}>
         <div style={{ display:"flex", gap:5, flexWrap:"wrap", alignItems:"center" }}>
           <span style={{ fontSize:9, fontWeight:700, color:C.muted, letterSpacing:".1em", textTransform:"uppercase", marginRight:2, flexShrink:0 }}>League</span>
-          {["All","NBA","MLB","NCAAB","PGA","NFL","NHL","CFB","Other"].map(s=>(
+          {["All","NBA","MLB","NCAAB","NCAAB Baseball","PGA","NFL","NHL","CFB","Other"].map(s=>(
             <button key={s} onClick={()=>setSportF(s)} style={{ padding:"4px 10px", borderRadius:16, border:"none", cursor:"pointer",
               fontSize:10, fontWeight:700, fontFamily:"'Montserrat',sans-serif",
               background:sportF===s?C.pitBlue:C.surface, color:sportF===s?"#fff":C.muted,
@@ -796,20 +826,26 @@ function PicksTab({ picks, setPicks, onAdd }) {
             ))}
           </div>
           {filtered.map(p=>(
-            <div key={p.id} style={{ position:"relative" }}
-              onDoubleClick={()=>setUpdating(p)}>
+            <div key={p.id} style={{ position:"relative" }}>
               <PickRow pick={p} />
-              {p.result==="pending" && (
-                <div style={{ padding:"0 14px 10px", background:C.surface }}>
+              <div style={{ padding:"0 14px 10px", background:C.surface, display:"flex", gap:8 }}>
+                {p.result==="pending" && (
                   <button onClick={()=>setUpdating(p)} style={{
-                    width:"100%", padding:"7px 0", borderRadius:6,
+                    flex:1, padding:"7px 0", borderRadius:6,
                     border:`1px solid ${C.pitBlue}`, background:"transparent",
                     color:C.pitBlue, cursor:"pointer", fontSize:11, fontWeight:700,
                     fontFamily:"'Montserrat',sans-serif", letterSpacing:".05em" }}>
                     ✓ Grade This Pick
                   </button>
-                </div>
-              )}
+                )}
+                <button onClick={()=>setEditing(p)} style={{
+                  padding:"7px 16px", borderRadius:6,
+                  border:`1px solid ${C.border}`, background:C.surfaceHi,
+                  color:C.muted, cursor:"pointer", fontSize:11, fontWeight:700,
+                  fontFamily:"'Montserrat',sans-serif", letterSpacing:".04em" }}>
+                  ✎ Edit
+                </button>
+              </div>
             </div>
           ))}
           {filtered.length === 0 && (
@@ -821,6 +857,12 @@ function PicksTab({ picks, setPicks, onAdd }) {
       {updating && <UpdateResultModal pick={updating} onClose={()=>setUpdating(null)} onUpdate={updated=>{
         setPicks(prev=>prev.map(p=>p.id===updated.id?updated:p));
       }} />}
+      {editing && <AddPickModal
+        game={null}
+        existingPick={editing}
+        onClose={()=>setEditing(null)}
+        onSave={updated=>setPicks(prev=>prev.map(p=>p.id===updated.id?updated:p))}
+      />}
     </div>
   );
 }
@@ -1174,6 +1216,67 @@ function AnalyticsTab({ picks }) {
         )}
       </div>
 
+      {/* ── By Team ── */}
+      {(() => {
+        // Extract team names from pick.game field "Away @ Home" or "Team – Event"
+        const teamMap = {};
+        filtered.forEach(p => {
+          if (p.result === "pending") return;
+          // Try to extract team from bet description first (most reliable)
+          const betWords = (p.bet || "").split(" ");
+          const candidates = [];
+          // From game field: "Away @ Home" → both teams
+          const gameParts = (p.game || "").split(/\s+@\s+|vs\.?\s+/i);
+          gameParts.forEach(part => {
+            const t = part.trim().replace(/[#\d\s]+$/, "").trim(); // strip seed numbers
+            if (t.length > 2) candidates.push(t);
+          });
+          // Use first candidate as "the team being bet" (away = first)
+          const team = candidates[0] || p.game || "Unknown";
+          if (!teamMap[team]) teamMap[team] = { label: team, wins: 0, losses: 0, net: 0 };
+          if (p.result === "win") { teamMap[team].wins++; teamMap[team].net += p.profit; }
+          else { teamMap[team].losses++; teamMap[team].net += p.profit; }
+        });
+        const teamStats = Object.values(teamMap)
+          .filter(t => t.wins + t.losses >= 1)
+          .sort((a, b) => (b.wins + b.losses) - (a.wins + a.losses))
+          .slice(0, 15);
+        if (teamStats.length === 0) return null;
+        return (
+          <div style={{ background:C.surface, border:`1px solid ${C.border}`, borderRadius:10,
+            padding:18, marginTop:14, boxShadow:"0 2px 8px rgba(0,53,148,.05)" }}>
+            <SectionHead t="By Team" sub="Most-bet teams · win/loss record & net P&L" />
+            {teamStats.map(({ label, wins, losses, net }) => {
+              const total = wins + losses;
+              const winPct = total > 0 ? Math.round((wins / total) * 100) : 0;
+              return (
+                <div key={label} style={{ marginBottom:12 }}>
+                  <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:5 }}>
+                    <div style={{ display:"flex", gap:8, alignItems:"center", minWidth:0, flex:1 }}>
+                      <span style={{ fontSize:11, fontWeight:700, color:C.text, whiteSpace:"nowrap",
+                        overflow:"hidden", textOverflow:"ellipsis", maxWidth:160 }}>{label}</span>
+                      <span style={{ fontSize:10, color:C.muted, whiteSpace:"nowrap" }}>{wins}-{losses} ({total} bets)</span>
+                    </div>
+                    <div style={{ display:"flex", gap:10, alignItems:"center", flexShrink:0 }}>
+                      <span style={{ fontSize:12, fontWeight:800, fontFamily:"'Roboto Mono',monospace",
+                        color: winPct>=55?C.win:winPct>=45?C.pitGold:C.loss }}>{winPct}%</span>
+                      <span style={{ fontSize:12, fontWeight:800, fontFamily:"'Roboto Mono',monospace",
+                        color:net>=0?C.win:C.loss, minWidth:58, textAlign:"right" }}>
+                        {net>=0?"+":""}${net.toFixed(0)}
+                      </span>
+                    </div>
+                  </div>
+                  <div style={{ display:"flex", height:5, borderRadius:3, overflow:"hidden", background:C.bgAlt }}>
+                    <div style={{ width:`${winPct}%`, background:`linear-gradient(90deg,${C.pitBlue},${C.pitBlue}88)`,
+                      transition:"width .5s ease", borderRadius:3 }} />
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        );
+      })()}
+
       {settled.length === 0 && (
         <div style={{ textAlign:"center", padding:"40px 20px", color:C.muted, marginTop:8 }}>
           <div style={{ fontSize:28, marginBottom:10 }}>🎯</div>
@@ -1189,7 +1292,16 @@ function AnalyticsTab({ picks }) {
 // On a real hosted domain (Vercel, Netlify, etc.) localStorage is completely
 // reliable and persists indefinitely until the user manually clears their browser.
 // This is the production storage layer for Power Picks HQ.
-const STORAGE_KEY     = "powerpickshq-picks-v1";
+const STORAGE_KEY       = "powerpickshq-picks-v1";
+const CUSTOM_TAGS_KEY   = "powerpickshq-custom-tags-v1";
+
+function loadCustomTagsSync() {
+  try { const r = localStorage.getItem(CUSTOM_TAGS_KEY); return r ? JSON.parse(r) : []; }
+  catch(_) { return []; }
+}
+function saveCustomTagsSync(tags) {
+  try { localStorage.setItem(CUSTOM_TAGS_KEY, JSON.stringify(tags)); } catch(_) {}
+}
 
 async function loadPicks() {
   try {
@@ -1297,18 +1409,23 @@ export default function App() {
         flexWrap:"wrap", gap:8,
         borderBottom:`2px solid ${C.pitGoldBg}`, background:C.header, boxShadow:"0 2px 12px rgba(0,53,148,.25)" }}>
 
-        {/* logo */}
+        {/* logo — custom SVG: gold lightning bolt inside Pitt blue shield */}
         <div style={{ display:"flex", alignItems:"center", gap:10 }}>
-          <div style={{ width:34, height:34, borderRadius:"50%",
-            background:`linear-gradient(135deg,${C.pitBlue},#0055CC)`,
-            display:"flex", alignItems:"center", justifyContent:"center",
-            border:`2px solid ${C.pitGold}`, boxShadow:`0 0 14px rgba(255,184,28,.35)` }}>
-            <span style={{ fontSize:16 }}>🏀</span>
-          </div>
+          <svg width="36" height="36" viewBox="0 0 36 36" fill="none" xmlns="http://www.w3.org/2000/svg">
+            {/* Shield shape */}
+            <path d="M18 2L4 8V18C4 25.7 10.2 32.8 18 34C25.8 32.8 32 25.7 32 18V8L18 2Z"
+              fill="#003594" stroke="#FFB81C" strokeWidth="1.5"/>
+            {/* Gold lightning bolt */}
+            <path d="M21 5L12 19H18L15 31L26 15H20L21 5Z"
+              fill="#FFB81C" stroke="#B87800" strokeWidth="0.5"/>
+          </svg>
           <div>
             <div style={{ fontSize:15, fontWeight:900, color:C.pitGoldBg, letterSpacing:".06em",
               animation:"goldGlow 3.5s ease infinite" }}>
               POWER PICKS HQ
+            </div>
+            <div style={{ fontSize:8, color:"rgba(255,184,28,.6)", letterSpacing:".15em", textTransform:"uppercase", marginTop:1 }}>
+              Sports Betting Tracker
             </div>
           </div>
         </div>
