@@ -512,10 +512,11 @@ function AddPickModal({ game, onClose, onSave, existingPick }) {
   );
 
   return (
-    <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,.85)", backdropFilter:"blur(10px)",
-      zIndex:1000, display:"flex", alignItems:"center", justifyContent:"center", padding:16 }}
-      onClick={e=>e.target===e.currentTarget&&onClose()}>
-      <div style={{ background:C.surface, border:`1px solid ${C.border}`, borderRadius:14, padding:24,
+    <div onMouseDown={e=>e.target===e.currentTarget&&onClose()}
+      style={{ position:"fixed", inset:0, background:"rgba(0,0,0,.85)", backdropFilter:"blur(10px)",
+      zIndex:1000, display:"flex", alignItems:"center", justifyContent:"center", padding:16 }}>
+      <div onMouseDown={e=>e.stopPropagation()}
+        style={{ background:C.surface, border:`1px solid ${C.border}`, borderRadius:14, padding:24,
         width:"100%", maxWidth:520, maxHeight:"92vh", overflowY:"auto",
         boxShadow:"0 8px 40px rgba(0,53,148,.2)" }}>
 
@@ -663,10 +664,11 @@ function UpdateResultModal({ pick, onClose, onUpdate }) {
     return -pick.stake;
   };
   return (
-    <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,.85)", backdropFilter:"blur(10px)",
-      zIndex:1000, display:"flex", alignItems:"center", justifyContent:"center" }}
-      onClick={e=>e.target===e.currentTarget&&onClose()}>
-      <div style={{ background:C.surface,
+    <div onMouseDown={e=>e.target===e.currentTarget&&onClose()}
+      style={{ position:"fixed", inset:0, background:"rgba(0,0,0,.85)", backdropFilter:"blur(10px)",
+      zIndex:1000, display:"flex", alignItems:"center", justifyContent:"center" }}>
+      <div onMouseDown={e=>e.stopPropagation()}
+        style={{ background:C.surface,
         border:`1px solid ${C.borderGold}`, borderRadius:14, padding:28, width:"100%", maxWidth:380,
         boxShadow:`0 0 60px rgba(0,53,148,.5)` }}>
         <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:16 }}>
@@ -715,6 +717,7 @@ function PicksTab({ picks, setPicks, onAdd }) {
   const [labelF, setLabelF] = useState("All");
   const [updating, setUpdating] = useState(null);
   const [editing, setEditing] = useState(null);
+  const [showGraded, setShowGraded] = useState(false);
 
   const filtered = picks.filter(p=>
     (sportF==="All"||(p.league||p.sport)===sportF||p.sport===sportF) &&
@@ -822,54 +825,90 @@ function PicksTab({ picks, setPicks, onAdd }) {
           <div style={{ fontSize:16, fontWeight:700, marginBottom:6 }}>No picks yet</div>
           <div style={{ fontSize:13 }}>Add picks from the Odds Board or create a custom bet above.</div>
         </div>
-      ) : (
-        <div style={{ border:`1px solid ${C.border}`, borderRadius:10, overflow:"hidden" }}>
+      ) : (() => {
+        const pending = filtered.filter(p => p.result === "pending");
+        const graded  = filtered.filter(p => p.result !== "pending");
+        const PickActions = ({ p }) => (
+          <div style={{ padding:"0 14px 10px", background:C.surface, display:"flex", gap:8 }}>
+            {p.result === "pending" && (
+              <button onClick={()=>setUpdating(p)} style={{
+                flex:1, padding:"7px 0", borderRadius:6,
+                border:`1px solid ${C.pitBlue}`, background:"transparent",
+                color:C.pitBlue, cursor:"pointer", fontSize:11, fontWeight:700,
+                fontFamily:"'Montserrat',sans-serif", letterSpacing:".05em" }}>
+                ✓ Grade This Pick
+              </button>
+            )}
+            <button onClick={()=>setEditing(p)} style={{
+              padding:"7px 14px", borderRadius:6,
+              border:`1px solid ${C.border}`, background:C.surfaceHi,
+              color:C.muted, cursor:"pointer", fontSize:11, fontWeight:700,
+              fontFamily:"'Montserrat',sans-serif", letterSpacing:".04em" }}>
+              ✎ Edit
+            </button>
+            <button onClick={()=>{
+              if (window.confirm(`Delete "${p.bet}"? This cannot be undone.`)) {
+                setPicks(prev => prev.filter(x => x.id !== p.id));
+              }
+            }} style={{
+              padding:"7px 12px", borderRadius:6,
+              border:"1px solid rgba(192,36,62,.3)", background:"rgba(192,36,62,.06)",
+              color:C.loss, cursor:"pointer", fontSize:11, fontWeight:700,
+              fontFamily:"'Montserrat',sans-serif" }}
+              title="Delete this pick">🗑</button>
+          </div>
+        );
+        const tableHeader = (
           <div style={{ padding:"9px 14px", background:C.pitBlue,
             borderBottom:`1px solid ${C.border}`, display:"flex", gap:16 }}>
-            {["Bet · Label · Sport","Odds · Stake","P&L · Result"].map(h=>(
+            {["Bet · Label · Sport","Odds · Stake · Date","P&L · Result"].map(h=>(
               <div key={h} style={{ fontSize:9, fontWeight:700, color:"rgba(255,255,255,.7)", letterSpacing:".1em", textTransform:"uppercase" }}>{h}</div>
             ))}
           </div>
-          {filtered.map(p=>(
-            <div key={p.id} style={{ position:"relative" }}>
-              <PickRow pick={p} />
-              <div style={{ padding:"0 14px 10px", background:C.surface, display:"flex", gap:8 }}>
-                {p.result==="pending" && (
-                  <button onClick={()=>setUpdating(p)} style={{
-                    flex:1, padding:"7px 0", borderRadius:6,
-                    border:`1px solid ${C.pitBlue}`, background:"transparent",
-                    color:C.pitBlue, cursor:"pointer", fontSize:11, fontWeight:700,
-                    fontFamily:"'Montserrat',sans-serif", letterSpacing:".05em" }}>
-                    ✓ Grade This Pick
-                  </button>
-                )}
-                <button onClick={()=>setEditing(p)} style={{
-                  padding:"7px 14px", borderRadius:6,
-                  border:`1px solid ${C.border}`, background:C.surfaceHi,
-                  color:C.muted, cursor:"pointer", fontSize:11, fontWeight:700,
-                  fontFamily:"'Montserrat',sans-serif", letterSpacing:".04em" }}>
-                  ✎ Edit
-                </button>
-                <button onClick={()=>{
-                  if (window.confirm(`Delete "${p.bet}"? This cannot be undone.`)) {
-                    setPicks(prev => prev.filter(x => x.id !== p.id));
-                  }
-                }} style={{
-                  padding:"7px 12px", borderRadius:6,
-                  border:"1px solid rgba(192,36,62,.3)", background:"rgba(192,36,62,.06)",
-                  color:C.loss, cursor:"pointer", fontSize:11, fontWeight:700,
-                  fontFamily:"'Montserrat',sans-serif" }}
-                  title="Delete this pick">
-                  🗑
-                </button>
-              </div>
+        );
+        return (
+          <div style={{ display:"flex", flexDirection:"column", gap:16 }}>
+            {/* ── Pending picks ── */}
+            <div style={{ border:`1px solid ${C.border}`, borderRadius:10, overflow:"hidden" }}>
+              {tableHeader}
+              {pending.length === 0
+                ? <div style={{ padding:"20px", textAlign:"center", color:C.muted, fontSize:12 }}>No pending picks match filters.</div>
+                : pending.map(p => (
+                  <div key={p.id}>
+                    <PickRow pick={p} />
+                    <PickActions p={p} />
+                  </div>
+                ))
+              }
             </div>
-          ))}
-          {filtered.length === 0 && (
-            <div style={{ padding:"24px", textAlign:"center", color:C.muted, fontSize:13 }}>No picks match current filters.</div>
-          )}
-        </div>
-      )}
+            {/* ── Graded picks collapsible ── */}
+            {graded.length > 0 && (
+              <div style={{ border:`1px solid ${C.border}`, borderRadius:10, overflow:"hidden" }}>
+                <button onClick={()=>setShowGraded(v=>!v)} style={{
+                  width:"100%", padding:"11px 16px", background:C.bgAlt,
+                  border:"none", borderBottom: showGraded ? `1px solid ${C.border}` : "none",
+                  cursor:"pointer", display:"flex", justifyContent:"space-between", alignItems:"center" }}>
+                  <span style={{ fontSize:11, fontWeight:800, color:C.pitBlue, letterSpacing:".06em", textTransform:"uppercase" }}>
+                    Graded Picks <span style={{ fontWeight:500, color:C.muted }}>({graded.length})</span>
+                  </span>
+                  <span style={{ fontSize:13, color:C.muted, transition:"transform .2s",
+                    display:"inline-block", transform: showGraded ? "rotate(180deg)" : "rotate(0deg)" }}>▾</span>
+                </button>
+                {showGraded && (
+                  <>
+                    {graded.map(p => (
+                      <div key={p.id}>
+                        <PickRow pick={p} />
+                        <PickActions p={p} />
+                      </div>
+                    ))}
+                  </>
+                )}
+              </div>
+            )}
+          </div>
+        );
+      })()}
 
       {updating && <UpdateResultModal pick={updating} onClose={()=>setUpdating(null)} onUpdate={updated=>{
         setPicks(prev=>prev.map(p=>p.id===updated.id?updated:p));
@@ -1141,7 +1180,24 @@ function AnalyticsTab({ picks }) {
         <StatPill label="Win %"    value={`${settled.length>0?pct(wins,settled.length):0}%`} sub="settled bets" accent={C.cyan} />
         <StatPill label="ROI"      value={`${roi}%`} sub="return on investment" accent={Number(roi)>=0?C.win:C.loss} />
         <StatPill label="Net P&L"  value={`${totalProfit>=0?"+":""}$${totalProfit.toFixed(0)}`} sub="total profit/loss" accent={totalProfit>=0?C.win:C.loss} />
-        <StatPill label="Avg Odds" value={settled.length>0?fmt(Math.round(settled.reduce((s,p)=>s+p.odds,0)/settled.length)):"—"} sub="on settled bets" accent={C.pitGold} />
+        <StatPill label="CLV" value={(() => {
+          if (settled.length === 0) return "—";
+          // CLV: how much better your odds were vs -110 closing baseline
+          // Positive = you got better of the number, negative = you paid too much juice
+          const clv = settled.reduce((sum, p) => {
+            const impliedYours   = p.odds > 0 ? 100/(p.odds+100) : Math.abs(p.odds)/(Math.abs(p.odds)+100);
+            const impliedBaseline = 110/210; // -110 baseline = 52.38%
+            return sum + (impliedBaseline - impliedYours) * 100;
+          }, 0) / settled.length;
+          return `${clv >= 0 ? "+" : ""}${clv.toFixed(1)}%`;
+        })()} sub="closing line value" accent={(() => {
+          if (settled.length === 0) return C.pitGold;
+          const clv = settled.reduce((sum, p) => {
+            const imp = p.odds > 0 ? 100/(p.odds+100) : Math.abs(p.odds)/(Math.abs(p.odds)+100);
+            return sum + (110/210 - imp) * 100;
+          }, 0) / settled.length;
+          return clv >= 0 ? C.win : C.loss;
+        })()} />
       </div>
 
       {/* ── Performance Line Chart ── */}
@@ -1305,12 +1361,22 @@ function AnalyticsTab({ picks }) {
 }
 
 
-// ─── PERSISTENT STORAGE ──────────────────────────────────────────────────────
-// On a real hosted domain (Vercel, Netlify, etc.) localStorage is completely
-// reliable and persists indefinitely until the user manually clears their browser.
-// This is the production storage layer for Power Picks HQ.
+// ─── PERSISTENT STORAGE — localStorage + Supabase cross-device sync ─────────
+// localStorage: instant reads/writes, works offline
+// Supabase: cloud sync so picks are identical on every device
+// To enable Supabase: add VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY in Vercel
+// → Project Settings → Environment Variables
+// Table setup (run once in Supabase SQL editor):
+//   create table picks (
+//     user_id text primary key,
+//     data jsonb not null default '[]',
+//     updated_at timestamptz default now()
+//   );
+//   alter table picks enable row level security;
+//   create policy "public rw" on picks for all using (true) with check (true);
 const STORAGE_KEY       = "powerpickshq-picks-v1";
 const CUSTOM_TAGS_KEY   = "powerpickshq-custom-tags-v1";
+const SUPABASE_USER_ID  = "powerpickshq-main";
 
 function loadCustomTagsSync() {
   try { const r = localStorage.getItem(CUSTOM_TAGS_KEY); return r ? JSON.parse(r) : []; }
@@ -1320,26 +1386,62 @@ function saveCustomTagsSync(tags) {
   try { localStorage.setItem(CUSTOM_TAGS_KEY, JSON.stringify(tags)); } catch(_) {}
 }
 
+// Supabase helpers — gracefully no-op if env vars not set
+const SB_URL  = typeof import.meta !== "undefined" ? import.meta.env?.VITE_SUPABASE_URL  : null;
+const SB_KEY  = typeof import.meta !== "undefined" ? import.meta.env?.VITE_SUPABASE_ANON_KEY : null;
+const sbReady = !!(SB_URL && SB_KEY);
+
+async function sbFetch(picks) {
+  if (!sbReady) return null;
+  try {
+    const res = await fetch(`${SB_URL}/rest/v1/picks?user_id=eq.${SUPABASE_USER_ID}&select=data`, {
+      headers: { apikey: SB_KEY, Authorization: `Bearer ${SB_KEY}`, "Content-Type": "application/json" }
+    });
+    if (!res.ok) return null;
+    const rows = await res.json();
+    if (rows.length > 0 && Array.isArray(rows[0].data)) return rows[0].data;
+    return null;
+  } catch(_) { return null; }
+}
+
+async function sbSave(picks) {
+  if (!sbReady) return;
+  try {
+    await fetch(`${SB_URL}/rest/v1/picks`, {
+      method: "POST",
+      headers: {
+        apikey: SB_KEY, Authorization: `Bearer ${SB_KEY}`,
+        "Content-Type": "application/json", Prefer: "resolution=merge-duplicates"
+      },
+      body: JSON.stringify({ user_id: SUPABASE_USER_ID, data: picks, updated_at: new Date().toISOString() })
+    });
+  } catch(_) {}
+}
+
 async function loadPicks() {
+  // 1. Try Supabase first (authoritative cross-device source)
+  const cloud = await sbFetch();
+  if (cloud && cloud.length > 0) {
+    try { localStorage.setItem(STORAGE_KEY, JSON.stringify(cloud)); } catch(_) {}
+    return cloud;
+  }
+  // 2. Fall back to localStorage (works offline, single device)
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (raw) {
       const parsed = JSON.parse(raw);
       if (Array.isArray(parsed)) return parsed;
     }
-  } catch (e) {
-    console.error("Failed to load picks:", e);
-  }
+  } catch(e) { console.error("Failed to load picks:", e); }
   return [];
 }
 
 async function savePicks(picks) {
-  try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(picks));
-  } catch (e) {
-    console.error("Failed to save picks:", e);
-    throw e; // re-throw so the UI can show error status
-  }
+  // Write localStorage immediately (instant UI feedback)
+  try { localStorage.setItem(STORAGE_KEY, JSON.stringify(picks)); }
+  catch(e) { console.error("localStorage save failed:", e); throw e; }
+  // Write Supabase in background (cross-device sync)
+  sbSave(picks);
 }
 
 
