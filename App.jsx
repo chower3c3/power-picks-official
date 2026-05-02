@@ -1346,7 +1346,7 @@ function AnalyticsTab({ picks }) {
           const game = (pick.game || "").trim();
           const sorted = [...TEAM_WORDS].sort((a,b) => b.length - a.length);
           for (const t of sorted) {
-            const re = new RegExp("\b" + t.replace(/[.*+?^${}()|[\]\]/g,"\$&") + "\b", "i");
+            const re = new RegExp("(?:^|\\s|[-+])" + t.replace(/[.*+?^${}()|[\]\\]/g,"\\$&") + "(?=$|\\s|[-+.\\d])", "i");
             if (re.test(bet)) return t;
           }
           const propMatch = bet.match(/^([A-Z][a-zA-Z]+(?: [A-Z][a-zA-Z]+)*)/);
@@ -1442,7 +1442,7 @@ function AnalyticsTab({ picks }) {
           const game = (pick.game || "").trim();
           const sorted = [...TEAM_WORDS].sort((a,b) => b.length - a.length);
           for (const t of sorted) {
-            const re = new RegExp("\b" + t.replace(/[.*+?^${}()|[\]\]/g,"\$&") + "\b", "i");
+            const re = new RegExp("(?:^|\\s|[-+])" + t.replace(/[.*+?^${}()|[\]\\]/g,"\\$&") + "(?=$|\\s|[-+.\\d])", "i");
             if (re.test(bet)) return t;
           }
           const propMatch = bet.match(/^([A-Z][a-zA-Z]+(?: [A-Z][a-zA-Z]+)*)/);
