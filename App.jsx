@@ -1320,57 +1320,119 @@ function AnalyticsTab({ picks }) {
 
       {/* ── By Team ── */}
       {(() => {
-        // Extract team names from pick.game field "Away @ Home" or "Team – Event"
+        // Known NBA/MLB/NCAAB/NFL/NHL team nicknames to match against bet descriptions
+        // Match the LAST capitalized word group before any spread/odds indicator
+        const TEAM_WORDS = [
+          // NBA
+          "Hawks","Celtics","Nets","Hornets","Bulls","Cavaliers","Mavericks","Nuggets",
+          "Pistons","Warriors","Rockets","Pacers","Clippers","Lakers","Grizzlies","Heat",
+          "Bucks","Timberwolves","Pelicans","Knicks","Thunder","Magic","76ers","Suns",
+          "Trail Blazers","Blazers","Kings","Spurs","Raptors","Jazz","Wizards",
+          // MLB
+          "Angels","Astros","Athletics","Red Sox","White Sox","Orioles","Indians","Guardians",
+          "Tigers","Royals","Twins","Yankees","Blue Jays","Rays","Rangers",
+          "Diamondbacks","D-Backs","Braves","Cubs","Reds","Rockies","Dodgers","Marlins",
+          "Brewers","Mets","Phillies","Pirates","Cardinals","Padres","Giants","Nationals",
+          // NCAAB / NCAAB Baseball
+          "Wolverines","Volunteers","Blue Devils","Huskies","Tar Heels","Jayhawks",
+          "Wildcats","Bulldogs","Longhorns","Trojans","Bruins","Buckeyes","Hoosiers",
+          "Boilermakers","Illini","Badgers","Gophers","Hawkeyes","Cornhuskers","Tigers",
+          "Razorbacks","Gamecocks","Gators","Seminoles","Hurricanes","Yellow Jackets",
+          "Cavaliers","Cardinals","Panthers","Eagles","Falcons","Owls","Mean Green",
+          // NFL
+          "Patriots","Bills","Dolphins","Jets","Ravens","Steelers","Browns","Bengals",
+          "Texans","Colts","Jaguars","Titans","Chiefs","Raiders","Chargers","Broncos",
+          "Cowboys","Giants","Eagles","Commanders","Seahawks","Rams","Cardinals","49ers",
+          "Packers","Bears","Vikings","Lions","Saints","Falcons","Panthers","Buccaneers",
+          // NHL
+          "Bruins","Sabres","Canadiens","Senators","Maple Leafs","Hurricanes","Panthers",
+          "Capitals","Rangers","Islanders","Devils","Flyers","Penguins","Blackhawks",
+          "Red Wings","Predators","Blues","Flames","Avalanche","Oilers","Canucks","Ducks",
+          "Sharks","Stars","Wild","Jets","Coyotes","Golden Knights","Kraken",
+          // PGA — match player names from bet field directly
+        ];
+
+        const extractTeam = (pick) => {
+          const bet = (pick.bet || "").trim();
+          const game = (pick.game || "").trim();
+
+          // 1. Check bet description against known team nicknames (longest match first)
+          const sorted = [...TEAM_WORDS].sort((a,b) => b.length - a.length);
+          for (const t of sorted) {
+            const re = new RegExp("\b" + t.replace(/[.*+?^${}()|[\]\]/g,"\$&") + "\b", "i");
+            if (re.test(bet)) return t;
+          }
+
+          // 2. PGA / prop bets — use first capitalized name in bet description
+          //    e.g. "Woodland Win Outright" → "Woodland"
+          //    e.g. "LeBron James O25.5 pts" → "LeBron James"
+          const propMatch = bet.match(/^([A-Z][a-zA-Z]+(?: [A-Z][a-zA-Z]+)*)/);
+          if (propMatch && propMatch[1].length > 2 && !/^(Over|Under|Alt|Team|Game|Player)$/i.test(propMatch[1])) {
+            return propMatch[1];
+          }
+
+          // 3. Fallback — first team from game field "Away @ Home"
+          const gameParts = game.split(/\s+@\s+|vs\.?\s+/i);
+          if (gameParts.length >= 1) {
+            const raw = gameParts[0].trim().replace(/^[#\d\s]+/, "").trim();
+            // Get just the last word (team nickname) from "Indiana Pacers" → "Pacers"
+            const words = raw.split(" ").filter(Boolean);
+            return words[words.length - 1] || raw || "Unknown";
+          }
+
+          return "Unknown";
+        };
+
         const teamMap = {};
         filtered.forEach(p => {
           if (p.result === "pending") return;
-          // Try to extract team from bet description first (most reliable)
-          const betWords = (p.bet || "").split(" ");
-          const candidates = [];
-          // From game field: "Away @ Home" → both teams
-          const gameParts = (p.game || "").split(/\s+@\s+|vs\.?\s+/i);
-          gameParts.forEach(part => {
-            const t = part.trim().replace(/[#\d\s]+$/, "").trim(); // strip seed numbers
-            if (t.length > 2) candidates.push(t);
-          });
-          // Use first candidate as "the team being bet" (away = first)
-          const team = candidates[0] || p.game || "Unknown";
+          const team = extractTeam(p);
+          if (!team || team === "Unknown") return;
           if (!teamMap[team]) teamMap[team] = { label: team, wins: 0, losses: 0, net: 0 };
           if (p.result === "win") { teamMap[team].wins++; teamMap[team].net += p.profit; }
           else { teamMap[team].losses++; teamMap[team].net += p.profit; }
         });
-        const teamStats = Object.values(teamMap)
-          .filter(t => t.wins + t.losses >= 1)
-          .sort((a, b) => b.net - a.net)
-          .slice(0, 15);
+
+        // All teams, sorted: profitable teams first, then losing teams — no limit
+        const winners = Object.values(teamMap).filter(t=>t.net>=0).sort((a,b)=>b.net-a.net);
+        const losers  = Object.values(teamMap).filter(t=>t.net<0).sort((a,b)=>b.net-a.net);
+        const teamStats = [...winners, ...losers];
+
         if (teamStats.length === 0) return null;
         return (
           <div style={{ background:C.surface, border:`1px solid ${C.border}`, borderRadius:10,
             padding:18, marginTop:14, boxShadow:"0 2px 8px rgba(0,53,148,.05)" }}>
-            <SectionHead t="By Team" sub="Most-bet teams · win/loss record & net P&L" />
+            <SectionHead t="By Team"
+              sub={`All ${teamStats.length} teams · winners first, then losers · sorted by net P&L`} />
             {teamStats.map(({ label, wins, losses, net }) => {
               const total = wins + losses;
               const winPct = total > 0 ? Math.round((wins / total) * 100) : 0;
+              const barColor = net >= 0 ? C.win : C.loss;
               return (
-                <div key={label} style={{ marginBottom:12 }}>
-                  <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:5 }}>
+                <div key={label} style={{ marginBottom:11 }}>
+                  <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:4 }}>
                     <div style={{ display:"flex", gap:8, alignItems:"center", minWidth:0, flex:1 }}>
-                      <span style={{ fontSize:11, fontWeight:700, color:C.text, whiteSpace:"nowrap",
-                        overflow:"hidden", textOverflow:"ellipsis", maxWidth:160 }}>{label}</span>
-                      <span style={{ fontSize:10, color:C.muted, whiteSpace:"nowrap" }}>{wins}-{losses} ({total} bets)</span>
+                      <span style={{ fontSize:11, fontWeight:700, color:C.text,
+                        overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap", maxWidth:180 }}>
+                        {label}
+                      </span>
+                      <span style={{ fontSize:10, color:C.muted, whiteSpace:"nowrap" }}>
+                        {wins}W–{losses}L
+                      </span>
                     </div>
                     <div style={{ display:"flex", gap:10, alignItems:"center", flexShrink:0 }}>
-                      <span style={{ fontSize:12, fontWeight:800, fontFamily:"'Roboto Mono',monospace",
+                      <span style={{ fontSize:11, fontWeight:800, fontFamily:"'Roboto Mono',monospace",
                         color: winPct>=55?C.win:winPct>=45?C.pitGold:C.loss }}>{winPct}%</span>
-                      <span style={{ fontSize:12, fontWeight:800, fontFamily:"'Roboto Mono',monospace",
-                        color:net>=0?C.win:C.loss, minWidth:58, textAlign:"right" }}>
+                      <span style={{ fontSize:11, fontWeight:800, fontFamily:"'Roboto Mono',monospace",
+                        color: net>=0?C.win:C.loss, minWidth:58, textAlign:"right" }}>
                         {net>=0?"+":""}${net.toFixed(0)}
                       </span>
                     </div>
                   </div>
-                  <div style={{ display:"flex", height:5, borderRadius:3, overflow:"hidden", background:C.bgAlt }}>
-                    <div style={{ width:`${winPct}%`, background:`linear-gradient(90deg,${C.pitBlue},${C.pitBlue}88)`,
-                      transition:"width .5s ease", borderRadius:3 }} />
+                  <div style={{ height:4, borderRadius:2, background:C.bgAlt, overflow:"hidden" }}>
+                    <div style={{ width:`${winPct}%`, height:"100%",
+                      background:`linear-gradient(90deg,${barColor},${barColor}88)`,
+                      transition:"width .5s ease", borderRadius:2 }} />
                   </div>
                 </div>
               );
