@@ -1072,9 +1072,29 @@ function AnalyticsTab({ picks }) {
     return { label, w, losses: s.length - w, total: s.length, net, roi: r, winPct };
   }
 
-  const leagueStats   = allLeagues.map(l => makeStats(l, filtered.filter(p => (p.league||p.sport) === l))).filter(x => x.total > 0);
-  const betTypeStats  = allBetTypes.map(b => makeStats(b, filtered.filter(p => p.betType === b))).filter(x => x.total > 0);
-  const stratStats    = allStrategies.map(t => makeStats(t, filtered.filter(p => (p.strategyTags||[]).includes(t)))).filter(x => x.total > 0);
+  // All breakdown tables sorted descending by net P&L (top performer first)
+  const sortDesc = arr => [...arr].sort((a,b) => b.net - a.net);
+  const leagueStats   = sortDesc(allLeagues.map(l => makeStats(l, filtered.filter(p => (p.league||p.sport) === l))).filter(x => x.total > 0));
+  const betTypeStats  = sortDesc(allBetTypes.map(b => makeStats(b, filtered.filter(p => p.betType === b))).filter(x => x.total > 0));
+  const stratStats    = sortDesc(allStrategies.map(t => makeStats(t, filtered.filter(p => (p.strategyTags||[]).includes(t)))).filter(x => x.total > 0));
+
+  // By Month — chronological, no sorting
+  const monthlyStats = (() => {
+    const map = {};
+    filtered.forEach(p => {
+      if (!p.date) return;
+      const d = new Date(p.date);
+      if (isNaN(d)) return;
+      const key = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}`;
+      const label = d.toLocaleString("default", { month:"long", year:"numeric" });
+      if (!map[key]) map[key] = { key, label, picks: [] };
+      map[key].picks.push(p);
+    });
+    return Object.keys(map).sort().map(key => {
+      const { label, picks: mp } = map[key];
+      return makeStats(label, mp);
+    });
+  })();
 
   const SectionHead = ({ t, sub }) => (
     <div style={{ marginBottom:14 }}>
@@ -1289,6 +1309,15 @@ function AnalyticsTab({ picks }) {
         )}
       </div>
 
+      {/* ── By Month ── */}
+      {monthlyStats.length > 0 && (
+        <div style={{ background:C.surface, border:`1px solid ${C.border}`, borderRadius:10,
+          padding:18, marginTop:14, boxShadow:"0 2px 8px rgba(0,53,148,.05)" }}>
+          <SectionHead t="By Month" sub="Month-over-month performance in chronological order" />
+          {monthlyStats.map(s => <StatRow key={s.label} {...s} />)}
+        </div>
+      )}
+
       {/* ── By Team ── */}
       {(() => {
         // Extract team names from pick.game field "Away @ Home" or "Team – Event"
@@ -1312,7 +1341,7 @@ function AnalyticsTab({ picks }) {
         });
         const teamStats = Object.values(teamMap)
           .filter(t => t.wins + t.losses >= 1)
-          .sort((a, b) => (b.wins + b.losses) - (a.wins + a.losses))
+          .sort((a, b) => b.net - a.net)
           .slice(0, 15);
         if (teamStats.length === 0) return null;
         return (
@@ -1447,7 +1476,7 @@ async function savePicks(picks) {
 
 // ─── MAIN APP ─────────────────────────────────────────────────────────────────
 export default function App() {
-  const [tab, setTab]               = useState("odds");
+  const [tab, setTab]               = useState("picks");
   const [picks, setPicks]           = useState([]);
   const [loaded, setLoaded]         = useState(false);
   const [sportF, setSportF]         = useState("All");
@@ -1551,7 +1580,7 @@ export default function App() {
 
         {/* nav */}
         <nav style={{ display:"flex", gap:2 }}>
-          {[["odds","⚡ Odds"],["picks","📋 Picks"],["analytics","📈 Analytics"],["sharp","🔬 Sharp"]].map(([t,lbl])=>(
+          {[["picks","📋 Picks"],["analytics","📈 Analytics"]].map(([t,lbl])=>(
             <button key={t} onClick={()=>setTab(t)} style={{ padding:"6px 14px", borderRadius:6, border:"none",
               cursor:"pointer", fontSize:11, fontWeight:700, letterSpacing:".05em", textTransform:"uppercase",
               fontFamily:"'Montserrat',sans-serif", transition:"all .15s",
@@ -1613,92 +1642,9 @@ export default function App() {
       {/* ── MAIN ── */}
       <main style={{ padding:"16px", maxWidth:1400, margin:"0 auto" }}>
 
-        {/* ═══ ODDS BOARD ═══ */}
-        {tab === "odds" && (
-          <div className="fade-up">
-
-            {/* ── Daily lines banner ── */}
-            <div style={{ display:"flex", alignItems:"center", gap:10, marginBottom:14,
-              padding:"8px 14px", background:C.surface, borderRadius:8,
-              border:`1px solid ${C.border}`, flexWrap:"wrap" }}>
-              <span style={{ width:8,height:8,borderRadius:"50%",background:C.win,flexShrink:0 }} />
-              <span style={{ fontSize:11, fontWeight:700, color:C.win }}>DraftKings Lines</span>
-              <span style={{ fontSize:10, color:C.muted }}>Updated daily · {ODDS_DATE}</span>
-              <span style={{ fontSize:10, color:C.muted, marginLeft:"auto" }}>{GAMES.length} games loaded</span>
-            </div>
-
-            <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:14, flexWrap:"wrap", gap:10 }}>
-              <div>
-                <div style={{ fontSize:20, fontWeight:900, color:C.pitBlue, letterSpacing:".03em" }}>ODDS BOARD</div>
-                <div style={{ fontSize:11, color:C.muted, marginTop:2 }}>
-                  `DraftKings · ${ODDS_DATE} · ${GAMES.length} games`
-                </div>
-              </div>
-              <div style={{ display:"flex", gap:6, flexWrap:"wrap" }}>
-                {SPORTS_FILTER.map(s=>(
-                  <button key={s} onClick={()=>setSportF(s)} style={{ padding:"6px 14px", borderRadius:20, border:"none", cursor:"pointer",
-                    fontSize:11, fontWeight:700,
-                    background: sportF===s ? C.pitBlue : C.surface,
-                    border: sportF===s ? "none" : `1px solid ${C.border}`,
-                    color: sportF===s ? "#fff" : C.muted,
-                    fontFamily:"'Montserrat',sans-serif", transition:"all .15s" }}>
-                    {s}
-                  </button>
-                ))}
-              </div>
-            </div>
-
-
-
-            <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fill,minmax(270px,1fr))", gap:12 }}>
-              {filteredGames.map(g=><GameCard key={g.id} g={g} onAddPick={game=>setAddGame(game)} />)}
-            </div>
-          </div>
-        )}
-
         {/* ═══ PICKS ═══ */}
         {tab === "picks" && (
           <PicksTab picks={picks} setPicks={setPicks} onAdd={(g)=>{ if(g===null) setShowCustomBet(true); else setAddGame(g); }} />
-        )}
-
-        {/* ═══ SHARP ═══ */}
-        {tab === "sharp" && (
-          <div className="fade-up">
-            <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:16, flexWrap:"wrap", gap:12 }}>
-              <div>
-                <div style={{ fontSize:20, fontWeight:900, color:C.pitBlue, letterSpacing:".03em" }}>SHARP MONEY TRACKER</div>
-                <div style={{ fontSize:11, color:C.muted, marginTop:2 }}>Steam moves, reverse line movement & money %</div>
-              </div>
-              <div style={{ display:"flex", gap:6, alignItems:"center", padding:"6px 12px",
-                background:`${C.pitBlue}10`, border:`1px solid ${C.pitBlue}33`, borderRadius:6 }}>
-                <span style={{ width:7, height:7, borderRadius:"50%", background:C.pitGoldBg, boxShadow:`0 0 8px ${C.pitGoldBg}`, animation:"pulse 1.4s infinite" }} />
-                <span style={{ fontSize:10, color:C.pitBlue, fontWeight:700, letterSpacing:".1em" }}>LIVE TRACKING</span>
-              </div>
-            </div>
-
-            <div style={{ display:"flex", gap:10, marginBottom:16, flexWrap:"wrap" }}>
-              {[{lbl:"⚡ STEAM", c:C.pitBlue, d:"Rapid sharp money causing line move"},
-                {lbl:"↩ RLM", c:"#D4500A", d:"Line moved opposite to public betting"}].map(({lbl,c,d})=>(
-                <div key={lbl} style={{ display:"flex", alignItems:"center", gap:8, padding:"7px 12px",
-                  background:`${c}0d`, border:`1px solid ${c}30`, borderRadius:7 }}>
-                  <span style={{ fontSize:11, fontWeight:800, color:c, fontFamily:"'Montserrat',sans-serif" }}>{lbl}</span>
-                  <span style={{ fontSize:11, color:C.muted }}>{d}</span>
-                </div>
-              ))}
-            </div>
-
-            <div style={{ display:"flex", gap:6, marginBottom:14, flexWrap:"wrap" }}>
-              {["All","NBA","MLB","NCAAB","PGA"].map(s=>(
-                <button key={s} onClick={()=>setSharpF(s)} style={{ padding:"5px 13px", borderRadius:20, border:"none", cursor:"pointer",
-                  fontSize:11, fontWeight:700, background: sharpF===s ? C.cyan : "rgba(0,53,148,.2)",
-                  color: sharpF===s ? C.bg : C.muted, fontFamily:"'Montserrat',sans-serif" }}>{s}</button>
-              ))}
-            </div>
-
-            <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fill,minmax(290px,1fr))", gap:12 }}>
-              {filteredSharp.map(d=><SharpCard key={d.id} d={d} />)}
-            </div>
-          </div>
         )}
 
         {/* ═══ ANALYTICS ═══ */}
